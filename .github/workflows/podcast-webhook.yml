@@ -1,0 +1,82 @@
+name: Podcast Summary (Webhook)
+
+on:
+  repository_dispatch:
+    types: [podcast_summary]
+  workflow_dispatch:
+    inputs:
+      title:
+        description: 'Episode title'
+        required: true
+        type: string
+      published:
+        description: 'Publication date'
+        required: true
+        type: string
+      episodeUrl:
+        description: 'Episode URL'
+        required: true
+        type: string
+      audioUrl:
+        description: 'Audio URL (optional)'
+        required: false
+        type: string
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      
+      - name: Install dependencies
+        run: |
+          pip install requests
+          # Optionally install whisper for transcription
+          # pip install openai-whisper
+      
+      - name: Prepare payload
+        id: payload
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            # Extract from repository_dispatch event
+            echo "PODCAST_PAYLOAD<<EOF" >> $GITHUB_ENV
+            echo '${{ toJson(github.event.client_payload) }}' >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          else
+            # Extract from workflow_dispatch inputs
+            cat > /tmp/payload.json <<EOF
+          {
+            "title": "${{ github.event.inputs.title }}",
+            "published": "${{ github.event.inputs.published }}",
+            "episodeUrl": "${{ github.event.inputs.episodeUrl }}",
+            "audioUrl": "${{ github.event.inputs.audioUrl }}"
+          }
+          EOF
+            echo "PODCAST_PAYLOAD<<EOF" >> $GITHUB_ENV
+            cat /tmp/payload.json >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+      
+      - name: Run podcast summarization
+        env:
+          PODCAST_PAYLOAD: ${{ env.PODCAST_PAYLOAD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/summarize_podcast.py
+      
+      - name: Summary complete
+        run: |
+          echo "Podcast summary processing complete"
+          echo "Check for new pull request in the repository"
